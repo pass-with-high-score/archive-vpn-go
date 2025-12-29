@@ -1,46 +1,61 @@
 package http
 
 import (
+	"bytes"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
-
-	"archive-vpn/internal/config"
-	"archive-vpn/internal/wg"
 )
 
-type Handler struct {
-	Server config.ServerConfig
-	IPAM   *wg.IPAM
+type CreateVPNRequest struct {
+	Name string `json:"name" binding:"required"`
+	DNS  string `json:"dns" binding:"required"`
 }
 
-func (h *Handler) CreateVPNConfig(c *gin.Context) {
-	priv, pub, err := wg.GenerateKeyPair()
-	if err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+type CreateVPNResponse struct {
+	Config string `json:"config"`
+}
+
+func CreateVPNConfig(c *gin.Context) {
+	var req CreateVPNRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	clientIP := h.IPAM.Allocate()
+	exePath, err := os.Executable()
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	baseDir := filepath.Dir(exePath)
 
-	err = wg.AddPeer(
-		h.Server.InterfaceName,
-		pub,
-		clientIP,
+	scriptPath := filepath.Join(baseDir, "wireguard-install.sh")
+
+	cmd := exec.Command(
+		"sudo",
+		scriptPath,
+		"-create",
+		"-name", req.Name,
+		"-dns", req.DNS,
 	)
-	if err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  err.Error(),
+			"stderr": stderr.String(),
+		})
 		return
 	}
 
-	cfg := wg.BuildClientConfig(wg.ClientConfig{
-		PrivateKey:      priv,
-		ClientIP:        clientIP,
-		ServerPublicKey: h.Server.ServerPublicKey,
-		ServerEndpoint:  h.Server.ServerEndpoint,
-		ServerPort:      h.Server.ServerPort,
-		DNS:             []string{"1.1.1.1"},
+	c.JSON(http.StatusOK, CreateVPNResponse{
+		Config: stdout.String(),
 	})
-
-	c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(cfg))
 }
