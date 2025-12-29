@@ -22,7 +22,7 @@ func main() {
 	r := gin.Default()
 	r.POST("/vpn/config", h.CreateVPNConfig)
 
-	addr := ":8080"
+	addr := ":8089"
 	log.Println("VPN backend listening on", addr)
 
 	if err := r.Run(addr); err != nil {
