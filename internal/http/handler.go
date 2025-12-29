@@ -5,25 +5,41 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"archive-vpn/internal/config"
 	"archive-vpn/internal/wg"
 )
 
-func CreateVPNConfig(c *gin.Context) {
-	priv, _, err := wg.GenerateKeyPair()
+type Handler struct {
+	Server config.ServerConfig
+	IPAM   *wg.IPAM
+}
+
+func (h *Handler) CreateVPNConfig(c *gin.Context) {
+	priv, pub, err := wg.GenerateKeyPair()
 	if err != nil {
 		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	clientIP := "10.10.0.2/32"
+	clientIP := h.IPAM.Allocate()
+
+	err = wg.AddPeer(
+		h.Server.InterfaceName,
+		pub,
+		clientIP,
+	)
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	cfg := wg.BuildClientConfig(wg.ClientConfig{
 		PrivateKey:      priv,
 		ClientIP:        clientIP,
-		ServerPublicKey: "SERVER_PUBLIC_KEY_BASE64",
-		ServerEndpoint:  "vpn.example.com",
-		ServerPort:      51820,
-		DNS:             []string{"1.1.1.1", "8.8.8.8"},
+		ServerPublicKey: h.Server.ServerPublicKey,
+		ServerEndpoint:  h.Server.ServerEndpoint,
+		ServerPort:      h.Server.ServerPort,
+		DNS:             []string{"1.1.1.1"},
 	})
 
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(cfg))

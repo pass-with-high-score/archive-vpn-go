@@ -14,7 +14,6 @@ func GenerateKeyPair() (privateKey, publicKey string, err error) {
 		return "", "", err
 	}
 
-	// Clamp private key
 	priv[0] &= 248
 	priv[31] = (priv[31] & 127) | 64
 
